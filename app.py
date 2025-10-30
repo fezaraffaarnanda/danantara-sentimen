@@ -3,6 +3,22 @@ DANANTARA Sentiment Analysis - Simple Streamlit App
 """
 
 import streamlit as st
+import nltk
+
+# Download NLTK data untuk deployment
+@st.cache_resource
+def download_nltk_resources():
+    """Download NLTK data yang diperlukan"""
+    try:
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
+        return True
+    except:
+        return False
+
+# Download NLTK data
+download_nltk_resources()
+
 import config
 from utils.model_loader import load_models, predict_sentiment
 

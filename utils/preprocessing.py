@@ -5,11 +5,19 @@ import emoji
 from nltk.tokenize import word_tokenize
 import nltk
 
-# Download NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except:
-    nltk.download('punkt', quiet=True)
+# Download NLTK data (untuk deployment)
+def download_nltk_data():
+    """Download NLTK data yang diperlukan"""
+    resources = ['punkt', 'punkt_tab']
+    for resource in resources:
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+        except LookupError:
+            print(f"Downloading {resource}...")
+            nltk.download(resource, quiet=True)
+
+# Download saat import
+download_nltk_data()
 
 
 def preprocess_text(text, stopwords, norm_dict, stemmer):
