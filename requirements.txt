@@ -1,0 +1,8 @@
+streamlit
+scikit-learn
+joblib
+nltk
+Sastrawi
+emoji
+pandas
+numpy
