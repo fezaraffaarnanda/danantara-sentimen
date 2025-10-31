@@ -436,6 +436,9 @@ with tab2:
                 
                 total = len(df)
                 
+                error_count = 0
+                error_data = []  # Track data yang error
+                
                 for idx, row in df.iterrows():
                     # Update progress
                     progress = (idx + 1) / total
@@ -443,6 +446,14 @@ with tab2:
                     status_text.text(f"Processing {idx + 1}/{total}...")
                     
                     text = str(row[text_col])
+                    
+                    # Skip teks kosong atau terlalu pendek
+                    if not text or len(text.strip()) < 1:
+                        results_model1.append({'success': False, 'sentiment': 'N/A', 'confidence': 0})
+                        results_model2.append({'success': False, 'sentiment': 'N/A', 'confidence': 0})
+                        error_count += 1
+                        error_data.append({'index': idx, 'text': text, 'reason': 'Teks kosong atau terlalu pendek'})
+                        continue
                     
                     # Predict dengan model 1
                     result1 = predict_sentiment(
@@ -452,6 +463,14 @@ with tab2:
                         models_data['preprocessing']
                     )
                     results_model1.append(result1)
+                    
+                    if not result1['success']:
+                        error_count += 1
+                        error_data.append({
+                            'index': idx, 
+                            'text': text[:100] + '...' if len(text) > 100 else text,
+                            'reason': result1.get('error', 'Gagal preprocessing/prediksi')
+                        })
                     
                     # Predict dengan model 2
                     result2 = predict_sentiment(
@@ -466,15 +485,34 @@ with tab2:
                 status_text.empty()
                 
                 # Compile results
-                df['sentiment_model1'] = [r['sentiment'] if r['success'] else 'Error' for r in results_model1]
-                df['confidence_model1'] = [r['confidence'] if r['success'] else 0 for r in results_model1]
-                df['sentiment_model2'] = [r['sentiment'] if r['success'] else 'Error' for r in results_model2]
-                df['confidence_model2'] = [r['confidence'] if r['success'] else 0 for r in results_model2]
+                df['sentiment_model1'] = [r.get('sentiment', 'N/A') if r['success'] else 'N/A' for r in results_model1]
+                df['confidence_model1'] = [r.get('confidence', 0) if r['success'] else 0 for r in results_model1]
+                df['sentiment_model2'] = [r.get('sentiment', 'N/A') if r['success'] else 'N/A' for r in results_model2]
+                df['confidence_model2'] = [r.get('confidence', 0) if r['success'] else 0 for r in results_model2]
                 
                 st.success("✅ Analisis selesai!")
                 
+                # Tampilkan warning jika ada error
+                if error_count > 0:
+                    st.warning(f"⚠️ {error_count} data gagal diproses (teks kosong atau terlalu pendek)")
+                    
+                    # Dropdown untuk lihat data error
+                    with st.expander("🔍 Lihat data yang gagal diproses"):
+                        if error_data:
+                            error_df = pd.DataFrame(error_data)
+                            error_df.columns = ['Index', 'Text', 'Alasan Error']
+                            st.dataframe(error_df, use_container_width=True, height=300)
+                            
+                            # Info tambahan
+                            st.caption(f"Total: {len(error_df)} data gagal diproses")
+                        else:
+                            st.info("Tidak ada detail error tersedia")
+                
                 st.markdown("---")
                 st.markdown("## 📊 Hasil Analisis")
+                
+                # Filter out N/A untuk visualisasi
+                df_valid = df[(df['sentiment_model1'] != 'N/A') & (df['sentiment_model2'] != 'N/A')]
                 
                 # Metrics
                 col1, col2, col3, col4 = st.columns(4)
@@ -483,17 +521,20 @@ with tab2:
                     st.metric("Total Data", len(df))
                 
                 with col2:
-                    pos_model1 = (df['sentiment_model1'] == 'Positif').sum()
+                    pos_model1 = (df_valid['sentiment_model1'] == 'Positif').sum()
                     st.metric("Model 1: Positif", pos_model1)
                 
                 with col3:
-                    pos_model2 = (df['sentiment_model2'] == 'Positif').sum()
+                    pos_model2 = (df_valid['sentiment_model2'] == 'Positif').sum()
                     st.metric("Model 2: Positif", pos_model2)
                 
                 with col4:
-                    agreement = (df['sentiment_model1'] == df['sentiment_model2']).sum()
-                    agreement_pct = (agreement / len(df)) * 100
-                    st.metric("Kesepakatan", f"{agreement_pct:.1f}%")
+                    if len(df_valid) > 0:
+                        agreement = (df_valid['sentiment_model1'] == df_valid['sentiment_model2']).sum()
+                        agreement_pct = (agreement / len(df_valid)) * 100
+                        st.metric("Kesepakatan", f"{agreement_pct:.1f}%")
+                    else:
+                        st.metric("Kesepakatan", "N/A")
                 
                 # Visualizations
                 st.markdown("### 📈 Visualisasi")
@@ -501,100 +542,117 @@ with tab2:
                 tab_viz1, tab_viz2, tab_viz3 = st.tabs(["Distribution", "Comparison", "Confidence"])
                 
                 with tab_viz1:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Model 1 distribution
-                        sentiment_counts1 = df['sentiment_model1'].value_counts()
-                        fig1 = px.pie(
-                            values=sentiment_counts1.values,
-                            names=sentiment_counts1.index,
-                            title="Model 1: Distribusi Sentimen",
-                            color=sentiment_counts1.index,
-                            color_discrete_map={'Positif': '#38ef7d', 'Negatif': '#f45c43'}
-                        )
-                        fig1.update_traces(textinfo='percent+label', textfont_size=14)
-                        st.plotly_chart(fig1, use_container_width=True)
-                    
-                    with col2:
-                        # Model 2 distribution
-                        sentiment_counts2 = df['sentiment_model2'].value_counts()
-                        fig2 = px.pie(
-                            values=sentiment_counts2.values,
-                            names=sentiment_counts2.index,
-                            title="Model 2: Distribusi Sentimen",
-                            color=sentiment_counts2.index,
-                            color_discrete_map={'Positif': '#38ef7d', 'Negatif': '#f45c43'}
-                        )
-                        fig2.update_traces(textinfo='percent+label', textfont_size=14)
-                        st.plotly_chart(fig2, use_container_width=True)
+                    if len(df_valid) > 0:
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Model 1 distribution
+                            sentiment_counts1 = df_valid['sentiment_model1'].value_counts()
+                            fig1 = px.pie(
+                                values=sentiment_counts1.values,
+                                names=sentiment_counts1.index,
+                                title="Model 1: Distribusi Sentimen",
+                                color=sentiment_counts1.index,
+                                color_discrete_map={'Positif': '#38ef7d', 'Negatif': '#f45c43'}
+                            )
+                            fig1.update_traces(textinfo='percent+label', textfont_size=14)
+                            st.plotly_chart(fig1, use_container_width=True)
+                        
+                        with col2:
+                            # Model 2 distribution
+                            sentiment_counts2 = df_valid['sentiment_model2'].value_counts()
+                            fig2 = px.pie(
+                                values=sentiment_counts2.values,
+                                names=sentiment_counts2.index,
+                                title="Model 2: Distribusi Sentimen",
+                                color=sentiment_counts2.index,
+                                color_discrete_map={'Positif': '#38ef7d', 'Negatif': '#f45c43'}
+                            )
+                            fig2.update_traces(textinfo='percent+label', textfont_size=14)
+                            st.plotly_chart(fig2, use_container_width=True)
+                    else:
+                        st.warning("⚠️ Tidak ada data valid untuk divisualisasi")
                 
                 with tab_viz2:
-                    # Comparison bar chart
-                    comparison_data = pd.DataFrame({
-                        'Model': ['Model 1', 'Model 2'],
-                        'Positif': [
-                            (df['sentiment_model1'] == 'Positif').sum(),
-                            (df['sentiment_model2'] == 'Positif').sum()
-                        ],
-                        'Negatif': [
-                            (df['sentiment_model1'] == 'Negatif').sum(),
-                            (df['sentiment_model2'] == 'Negatif').sum()
-                        ]
-                    })
-                    
-                    fig3 = go.Figure()
-                    fig3.add_trace(go.Bar(
-                        name='Positif',
-                        x=comparison_data['Model'],
-                        y=comparison_data['Positif'],
-                        marker_color='#38ef7d'
-                    ))
-                    fig3.add_trace(go.Bar(
-                        name='Negatif',
-                        x=comparison_data['Model'],
-                        y=comparison_data['Negatif'],
-                        marker_color='#f45c43'
-                    ))
-                    
-                    fig3.update_layout(
-                        title="Perbandingan Hasil Kedua Model",
-                        barmode='group',
-                        xaxis_title="Model",
-                        yaxis_title="Jumlah",
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig3, use_container_width=True)
+                    if len(df_valid) > 0:
+                        # Comparison bar chart
+                        comparison_data = pd.DataFrame({
+                            'Model': ['Model 1', 'Model 2'],
+                            'Positif': [
+                                (df_valid['sentiment_model1'] == 'Positif').sum(),
+                                (df_valid['sentiment_model2'] == 'Positif').sum()
+                            ],
+                            'Negatif': [
+                                (df_valid['sentiment_model1'] == 'Negatif').sum(),
+                                (df_valid['sentiment_model2'] == 'Negatif').sum()
+                            ]
+                        })
+                        
+                        fig3 = go.Figure()
+                        fig3.add_trace(go.Bar(
+                            name='Positif',
+                            x=comparison_data['Model'],
+                            y=comparison_data['Positif'],
+                            marker_color='#38ef7d'
+                        ))
+                        fig3.add_trace(go.Bar(
+                            name='Negatif',
+                            x=comparison_data['Model'],
+                            y=comparison_data['Negatif'],
+                            marker_color='#f45c43'
+                        ))
+                        
+                        fig3.update_layout(
+                            title="Perbandingan Hasil Kedua Model",
+                            barmode='group',
+                            xaxis_title="Model",
+                            yaxis_title="Jumlah",
+                            height=400
+                        )
+                        
+                        st.plotly_chart(fig3, use_container_width=True)
+                    else:
+                        st.warning("⚠️ Tidak ada data valid untuk divisualisasi")
                 
                 with tab_viz3:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Model 1 confidence distribution
-                        fig4 = px.histogram(
-                            df,
-                            x='confidence_model1',
-                            nbins=20,
-                            title="Model 1: Distribusi Confidence",
-                            labels={'confidence_model1': 'Confidence (%)'},
-                            color_discrete_sequence=['#667eea']
-                        )
-                        fig4.update_layout(showlegend=False)
-                        st.plotly_chart(fig4, use_container_width=True)
-                    
-                    with col2:
-                        # Model 2 confidence distribution
-                        fig5 = px.histogram(
-                            df,
-                            x='confidence_model2',
-                            nbins=20,
-                            title="Model 2: Distribusi Confidence",
-                            labels={'confidence_model2': 'Confidence (%)'},
-                            color_discrete_sequence=['#764ba2']
-                        )
-                        fig5.update_layout(showlegend=False)
-                        st.plotly_chart(fig5, use_container_width=True)
+                    if len(df_valid) > 0:
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Model 1 confidence distribution (exclude 0)
+                            df_conf1 = df_valid[df_valid['confidence_model1'] > 0]
+                            if len(df_conf1) > 0:
+                                fig4 = px.histogram(
+                                    df_conf1,
+                                    x='confidence_model1',
+                                    nbins=20,
+                                    title="Model 1: Distribusi Confidence",
+                                    labels={'confidence_model1': 'Confidence (%)'},
+                                    color_discrete_sequence=['#667eea']
+                                )
+                                fig4.update_layout(showlegend=False)
+                                st.plotly_chart(fig4, use_container_width=True)
+                            else:
+                                st.info("Tidak ada data confidence untuk Model 1")
+                        
+                        with col2:
+                            # Model 2 confidence distribution (exclude 0)
+                            df_conf2 = df_valid[df_valid['confidence_model2'] > 0]
+                            if len(df_conf2) > 0:
+                                fig5 = px.histogram(
+                                    df_conf2,
+                                    x='confidence_model2',
+                                    nbins=20,
+                                    title="Model 2: Distribusi Confidence",
+                                    labels={'confidence_model2': 'Confidence (%)'},
+                                    color_discrete_sequence=['#764ba2']
+                                )
+                                fig5.update_layout(showlegend=False)
+                                st.plotly_chart(fig5, use_container_width=True)
+                            else:
+                                st.info("Tidak ada data confidence untuk Model 2")
+                    else:
+                        st.warning("⚠️ Tidak ada data valid untuk divisualisasi")
                 
                 # Download results
                 st.markdown("---")
