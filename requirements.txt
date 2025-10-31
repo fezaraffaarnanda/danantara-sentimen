@@ -6,3 +6,5 @@ Sastrawi
 emoji
 pandas
 numpy
+plotly
+openpyxl
